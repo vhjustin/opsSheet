@@ -1,0 +1,267 @@
+function URLupdate(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sn = ss.getSheetByName("Data"); //enter your personal sheet name here
+  var d = new Date();
+  var A = sn.getRange("G1");  //update the cell reference here
+  A.setValue("https://weather.gc.ca/rss/city/ab-71_e.xml#"+d);  //enter your personal URL name here
+}
+
+function clearLogs() {
+  //Clears log some time between 3AM and 4AM, and sets the date of the new day at the top.
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Log").clear();
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Log").appendRow([new Date()]);
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Log").getRange("C1").setValue("=IFERROR(IF(B1=\"Status\", FILTER(A2:A, REGEXMATCH(A2:A, \".status.\")), IF(B1=\"Operator\", FILTER(A2:A, REGEXMATCH(A2:A, \".operator.\")), IF(B1=\"Brix\", FILTER(A2:A, REGEXMATCH(A2:A, \".brix.\")),))),)");
+}
+
+function clearBreaks() {
+  //Clears the breaks lists twice, some time between 4PM and 5PM and again some time between 3AM and 4AM, hopefully between shift changes.
+  breakSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CTM");
+  breakSheet.getRange("S3:W21").clearContent();
+  breakSheet.getRange("S3:W21").setFontColor("black");
+}
+
+function warningBorder() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh1 = ss.getSheetByName("Operations");
+  var sh2 = ss.getSheetByName("CTM");
+  var sh3 = ss.getSheetByName("Data");
+  var currentTemp = sh3.getRange("H3").getValue();
+  //Cold warning if temp is below -20
+  if (currentTemp < -20) {
+    sh1.getRange("N23").setBorder(true, true, true, true, false, false);
+    sh2.getRange("S23").setBorder(true, true, true, true, false, false);
+  }
+  else {
+    sh1.getRange("N23").setBorder(false, false, false, false, false, false);
+    sh2.getRange("S23").setBorder(true, true, true, true, false, false);
+  }
+  //Type 4 Warning if temp is below -28
+  if (currentTemp < -28) {
+    sh1.getRange("P23").setBorder(true, true, true, true, false, false);
+    sh2.getRange("U23").setBorder(true, true, true, true, false, false);
+  }
+  else {
+    sh1.getRange("P23").setBorder(false, false, false, false, false, false);
+    sh2.getRange("U23").setBorder(false, false, false, false, false, false);
+  }
+  /*wind warning
+  if (windy) {
+    sh1.getRange("R23").setBorder(true, true, true, true, false, false);
+    sh2.getRange("W23").setBorder(false, false, false, false, false, false);
+  }
+  else {
+    sh1.getRange("R23").setBorder(false, false, false, false, false, false);
+    sh2.getRange("W23").setBorder(false, false, false, false, false, false);
+  }
+  */
+  //visibility warning
+  if (sh3.getRange("G2").getValue() == "FOG ADVISORY IN EFFECT") {
+    sh1.getRange("T23").setBorder(true, true, true, true, false, false);
+    sh2.getRange("Y23").setBorder(false, false, false, false, false, false);
+  }
+  else {
+    sh1.getRange("T23").setBorder(false, false, false, false, false, false);
+    sh2.getRange("Y23").setBorder(false, false, false, false, false, false);
+  }
+  
+  /*FRZRA warning
+  if (FRZRA) {
+    sh1.getRange("V23").setBorder(true, true, true, true, false, false);
+    sh2.getRange("AA23").setBorder(false, false, false, false, false, false);
+  }
+  else {
+    sh1.getRange("V23").setBorder(false, false, false, false, false, false);
+    sh2.getRange("AA23").setBorder(false, false, false, false, false, false);
+  }
+  */
+}
+
+function onEdit(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+      newValue = e.value;
+      newRange = e.range;
+      changedFrom = e.oldValue;
+  if (newValue == changedFrom) {return;}
+  var sheetChanged = newRange.getSheet().getName();
+      columnChanged = newRange.getColumn();
+      rowChanged = newRange.getRow();
+  if (rowChanged == 23) {return;}
+  var logSheet = ss.getSheetByName("Log");
+      truckNum = ss.getSheetByName(sheetChanged).getRange(rowChanged,1.0).getValue();
+      breaksSheet = ss.getSheetByName("CTM");
+      opsSheet = ss.getSheetByName("Operations");
+      tZ = ss.getSpreadsheetTimeZone();
+  /*
+  Logger.log(newValue);
+  Logger.log(newRange);
+  Logger.log(changedFrom);
+  Logger.log(sheetChanged);
+  Logger.log(columnChanged);
+  Logger.log(rowChanged);
+  Logger.log(truckNum);
+  */
+  //OPERATOR CHANGE -- copies operator between ops and breaks sheet, also creates log item.
+  if (columnChanged == 5) {
+    if (sheetChanged == "Operations") {
+      newRange.copyTo(breaksSheet.getRange(newRange.getA1Notation()));
+    }
+    else if (sheetChanged == "CTM") {
+      newRange.copyTo(opsSheet.getRange(newRange.getA1Notation()));
+    }
+    if (sheetChanged == "Operations" || sheetChanged == "CTM") {
+      if (newValue == "[object Object]") {newValue = "no operator";}
+      if (changedFrom == undefined) {changedFrom = "no operator";}
+      logSheet.appendRow([truckNum + " operator changed from " + changedFrom + " to " + newValue + " at " + Utilities.formatDate(new Date(), tZ, "HH:mm:ss")]);
+    }
+  }
+  //TRUCK STATUS CHANGE -- copies status/DF between ops and breaks sheet
+  if (columnChanged >= 7 && columnChanged <= 9) {
+    if (sheetChanged == "Operations") {
+      newRange.copyTo(breaksSheet.getRange(rowChanged, columnChanged + 1));
+    }
+    else if (sheetChanged == "CTM") {
+      newRange.copyTo(opsSheet.getRange(rowChanged, columnChanged - 1));
+    }
+    //Creates log item for status change.
+    if (sheetChanged == "Operations" || sheetChanged == "CTM") {
+      if (columnChanged >= 7 && columnChanged <= 9) {
+        if (newValue == "[object Object]") {newValue = "no status";}
+        if (changedFrom == undefined) {changedFrom = "no status";}
+        if (newValue == "On Pad") {
+          breaksSheet.getRange(rowChanged, 11, 1, 3).setValues([[1, 1, 1]]);
+        }
+        //Creates time if truck is set to On Break, for the start of the break
+        if (newValue == "On Break") {
+          if (breaksSheet.getRange(rowChanged, 19).isBlank()) {
+            breaksSheet.getRange(rowChanged, 19).setValue(Utilities.formatDate(new Date(), tZ, "HH:mm:ss"));
+          }
+          else {
+            breaksSheet.getRange(rowChanged, 23).setValue(Utilities.formatDate(new Date(), tZ, "HH:mm:ss"));
+          }
+        }
+        //Creates end time for the break, when truck is set to something other than On Break. Also calculates duration of break.
+        if (changedFrom == "On Break") {
+          endTime = new Date();
+          if (breaksSheet.getRange(rowChanged, 23).isBlank()) {
+            var startTime = breaksSheet.getRange(rowChanged, 19).getValue();
+                breakLength = getBreakLength(startTime, endTime);
+            breaksSheet.getRange(rowChanged, 19).setValue(Utilities.formatDate(startTime, tZ, "HH:mm:ss") + "/" + Utilities.formatDate(endTime, tZ, "HH:mm:ss") + "/" + Utilities.formatDate(breakLength, tZ, "HH:mm:ss"));
+            if (breakLength.getHours() > 1 || (breakLength.getHours() == 1 && breakLength.getMinutes() > 10)) {
+              breaksSheet.getRange(rowChanged, 19).setFontColor("red");  
+            }
+          }
+          else {
+            var startTime = breaksSheet.getRange(rowChanged, 23).getValue();
+                breakLength = getBreakLength(startTime, endTime);
+            breaksSheet.getRange(rowChanged, 23).setValue(Utilities.formatDate(startTime, tZ, "HH:mm:ss") + "/" + Utilities.formatDate(endTime, tZ, "HH:mm:ss") + "/" + Utilities.formatDate(breakLength, tZ, "HH:mm:ss"));
+            if (breakLength.getMinutes() > 40) {
+              breaksSheet.getRange(rowChanged, 23).setFontColor("red");  
+            }
+          }
+        }
+      }
+    }
+  }
+  //code to change brix on either sheet
+  if (sheetChanged == "Operations" && columnChanged == 10) {
+    newRange.copyTo(breaksSheet.getRange(rowChanged, 15));
+    if (newValue == "[object Object]") {newValue = "no brix";}
+    if (changedFrom == undefined) {changedFrom = "no brix";}
+    logSheet.appendRow([truckNum + " brix changed from " + changedFrom + " to " + newValue + " at " + Utilities.formatDate(new Date(), tZ, "HH:mm:ss")]);
+  }
+  if (sheetChanged == "CTM" && columnChanged == 15) {
+    newRange.copyTo(opsSheet.getRange(rowChanged, 10));
+    if (newValue == "[object Object]") {newValue = "no brix";}
+    if (changedFrom == undefined) {changedFrom = "no brix";}
+    logSheet.appendRow([truckNum + " brix changed from " + changedFrom + " to " + newValue + " at " + Utilities.formatDate(new Date(), tZ, "HH:mm:ss")]);
+  }
+  if (columnChanged == 11 && newValue > 1) {
+    if (rowChanged == 5 || rowChanged == 16 || rowChanged == 17 || rowChanged == 18) {
+      newRange.setValue(getPercent(newValue, truckNum, "water") + "%");
+    }
+    else {
+      newRange.setValue(getPercent(newValue, truckNum, "t1") + "%");
+    }
+  }
+  else if (columnChanged == 12 && newValue > 1) {
+    newRange.setValue(getPercent(newValue, truckNum, "t1") + "%");
+  }
+  else if (columnChanged == 13 && newValue > 1) {
+    newRange.setValue(getPercent(newValue, truckNum, "t4") + "%");
+  }
+  //Sets font color of breaks columns to black if changed
+  if (columnChanged == 19 || columnChanged == 23) {
+    newRange.setFontColor("black");
+  }
+}
+
+function getBreakLength(start, end) {
+  var startHours = start.getHours();
+      startMinutes = start.getMinutes();
+      startSeconds = start.getSeconds();
+      endHours = end.getHours();
+      endMinutes = end.getMinutes();
+      endSeconds = end.getSeconds();
+      hoursLong = endHours - startHours;
+      minutesLong = endMinutes - startMinutes;
+      secondsLong = endSeconds - startSeconds;
+      breakLength = new Date();
+  breakLength.setHours(hoursLong);
+  breakLength.setMinutes(minutesLong);
+  breakLength.setSeconds(secondsLong);
+  return breakLength;
+}
+
+function getPercent(quantity, truck, fluid) {
+  var maxQuantities = {};
+  if (fluid == "water") {
+    maxQuantities = {
+      "Mag 3": 40,
+      "Mag 23": 45,
+      "Mag 24": 45,
+      "Mag 25": 40,
+    };
+  }
+  else if (fluid == "t1") {
+    maxQuantities = {
+      "Mag 1": 46,
+      "Mag 2": 60,
+      "Mag 3": 20,
+      "Mag 5": 48.75,
+      "Mag 6": 45,
+      "Mag 15": 65,
+      "Mag 16": 65,
+      "Mag 17": 65,
+      "Mag 18": 60,
+      "Mag 19": 60,
+      "Mag 20": 60,
+      "Mag 21": 60,
+      "Mag 22": 60,
+      "Mag 23": 30,
+      "Mag 24": 30,
+      "Mag 25": 20,
+    };
+  }
+  else if (fluid == "t4") {
+    maxQuantities = {
+      "Mag 1": 10,
+      "Mag 2": 16,
+      "Mag 3": 15,
+      "Mag 5": 12,
+      "Mag 6": 17,
+      "Mag 15": 15,
+      "Mag 16": 15,
+      "Mag 17": 15,
+      "Mag 18": 20,
+      "Mag 19": 20,
+      "Mag 20": 20,
+      "Mag 21": 20,
+      "Mag 22": 20,
+      "Mag 23": 25,
+      "Mag 24": 25,
+      "Mag 25": 20,
+    };
+  }
+  var percentage = Math.round((quantity / maxQuantities[truck]) * 100, 0);
+  return percentage;
+}
